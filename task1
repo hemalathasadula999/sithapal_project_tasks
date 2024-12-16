@@ -1,0 +1,90 @@
+Initially install the following library to run the code:-pip install PyMuPDF sentence-transformers faiss-cpu openai
+import fitz  # PyMuPDF for PDF text extraction
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+
+# Step 1: Extract and Chunk Data from PDF
+def extract_text_from_pdf(pdf_path):
+    """
+    Extracts text from a PDF file and chunks it into paragraphs.
+    """
+    with fitz.open(pdf_path) as doc:
+        text_chunks = []
+        for page in doc:
+            text = page.get_text("text")
+            paragraphs = text.split("\n\n")  # Chunk by paragraphs
+            text_chunks.extend(paragraphs)
+    return text_chunks
+
+# Step 2: Generate Vector Embeddings
+def generate_embeddings(text_chunks, model_name="sentence-transformers/all-MiniLM-L6-v2"):
+    """
+    Converts text chunks into vector embeddings using a pre-trained model.
+    """
+    model = SentenceTransformer(model_name)
+    embeddings = model.encode(text_chunks, convert_to_tensor=True)
+    return embeddings, model
+
+# Step 3: Store Embeddings in a Vector Database
+def store_embeddings(embeddings):
+    """
+    Stores embeddings in a FAISS vector database for similarity search.
+    """
+    dimension = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dimension)
+    index.add(embeddings.cpu().numpy())  # FAISS expects NumPy arrays
+    return index
+
+# Step 4: Handle Query and Retrieve Relevant Data
+def query_vector_database(query, model, index, text_chunks, top_k=3):
+    """
+    Handles user queries by finding the most relevant text chunks.
+    """
+    query_embedding = model.encode([query], convert_to_tensor=True).cpu().numpy()
+    distances, indices = index.search(query_embedding, top_k)
+    results = [text_chunks[i] for i in indices[0]]
+    return results
+
+# Step 5: Example Integration with GPT
+def generate_response(retrieved_text, query, openai_api_key):
+    """
+    Generates a response using GPT by integrating retrieved text.
+    """
+    import openai
+    openai.api_key = openai_api_key
+
+    context = "\n".join(retrieved_text)
+    prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
+    
+    response = openai.Completion.create(
+        engine="gpt-4",
+        prompt=prompt,
+        max_tokens=200,
+        temperature=0
+    )
+    return response["choices"][0]["text"].strip()
+
+# Full Workflow Example
+def main():
+    pdf_path = "path/to/pdf/example.pdf"  # Replace with actual path
+    query = "What is the unemployment rate for individuals with a Bachelor's degree?"  # User query
+    openai_api_key = "your_openai_api_key_here"
+
+    # Extract and preprocess data
+    text_chunks = extract_text_from_pdf(pdf_path)
+    embeddings, model = generate_embeddings(text_chunks)
+    index = store_embeddings(embeddings)
+
+    # Query handling
+    retrieved_text = query_vector_database(query, model, index, text_chunks)
+    response = generate_response(retrieved_text, query, openai_api_key)
+
+    print("Query Response:\n", response)
+
+if _name_ == "_main_":
+    main()
+def extract_specific_page(pdf_path, page_number):
+    with fitz.open(pdf_path) as doc:
+        page = doc[page_number - 1]
+        return page.get_text("text")
